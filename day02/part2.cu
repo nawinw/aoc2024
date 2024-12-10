@@ -10,26 +10,43 @@ template<typename T>
 __global__ void checker(T* data, size_t rows, size_t cols, size_t stride)
 {
   size_t j = blockIdx.x * blockDim.x + threadIdx.x;
-  T increasing = 1;
-  T decreasing = 1;
-  T has_small_diffs = 1;
   if (j < cols)
   {
-    T prev = data[j];
-    if (prev != -1)
+    int omit = -1;
+    T result = 0;
+    do
     {
-      size_t i = 1;
+      T increasing = 1;
+      T decreasing = 1;
+      T has_small_diffs = 1;
+      T prev;
+      bool init = true;
+      size_t i = 0;
       while(data[i * stride + j] != -1)
       {
-        T cur = data[i * stride + j];
-        has_small_diffs = has_small_diffs & (cuda::std::abs(prev - cur) <= 3);
-        increasing = increasing & (cur > prev);
-        decreasing = decreasing & (cur < prev);
-        prev = cur;
+        if (i != omit)
+        {
+          if (init)
+          {            
+            prev = data[i * stride + j];
+            init = false;
+          }
+          else
+          {
+            T cur = data[i * stride + j];
+            has_small_diffs = has_small_diffs & (cuda::std::abs(prev - cur) <= 3);
+            increasing = increasing & (cur > prev);
+            decreasing = decreasing & (cur < prev);
+            prev = cur;
+          }
+        }
         i++;
       }
-    }
-    data[j] = (increasing ^ decreasing) & has_small_diffs;
+      __syncthreads(); // ?????
+      result = result | ((increasing ^ decreasing) & has_small_diffs);
+      omit++;
+    } while(data[omit * stride + j] != -1);
+    data[j] = result;
   }
 }
 
@@ -41,7 +58,11 @@ int main()
   data.resize(rows * cols);
   size_t num_cols = 0;
 
+#if 0
+  std::ifstream ifs("../day02/example.txt");
+#else
   std::ifstream ifs("../day02/part1.txt");
+#endif
   while(ifs.good())
   {
     std::string line;
@@ -70,14 +91,14 @@ int main()
 
   CHECK(cudaMemcpy(data.data(), data_gpu, data.size() * sizeof(data[0]), cudaMemcpyDefault));
 
-  // for (size_t i = 0; i < rows; i++)
-  // {
-  //   for (size_t j = 0; j < num_cols; j++)
-  //   {
-  //     std::cout << data[i * cols + j] << ", ";
-  //   }
-  //   std::cout << std::endl;
-  // }
+  for (size_t i = 0; i < 1; i++)
+  {
+    for (size_t j = 0; j < num_cols; j++)
+    {
+      std::cout << data[i * cols + j] << ", ";
+    }
+    std::cout << std::endl;
+  }
 
   int sum = 0;
   for (size_t j = 0; j < num_cols; j++)
